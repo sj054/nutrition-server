@@ -17,7 +17,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
 
-require("dotenv").config({ path: ".env.local" });
+require("dotenv").config();
 
 
 const app = express();
