@@ -17,20 +17,24 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
 
+require("dotenv").config({ path: ".env.local" });
+
+
 const app = express();
 const port = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
 
 // --------------------- DB 연결 ---------------------
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || "localhost",
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "sql1234",
-  database: process.env.DB_NAME || "nutrition_challenge",
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
   port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
   timezone: "+09:00",
   dateStrings: true,
 });
+
 
 // --------------------- 미들웨어 ---------------------
 app.use(cors());
@@ -289,6 +293,12 @@ cron.schedule(
   },
   { timezone: "Asia/Seoul" }
 );
+
+// ✅ DB 연결 테스트용 (임시)
+pool.query("SELECT * FROM test_table")
+  .then(([rows]) => console.log("✅ DB 연결 성공:", rows))
+  .catch((err) => console.error("❌ DB 연결 실패:", err.message));
+
 
 // ====================================================
 // ✅ [6] 서버 실행
