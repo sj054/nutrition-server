@@ -269,6 +269,32 @@ app.post("/admin/meals", requireAdmin("editor"), async (req, res) => {
   }
 });
 
+// 로그인 (이메일 입력칸 = username 컬럼에 저장했다고 가정)
+app.post("/login", async (req, res) => {
+  const { email, password } = req.body;  // 앱에서 etId=이메일 입력
+  try {
+    const [[user]] = await pool.query(
+      "SELECT user_id, username, password_hash FROM users WHERE username=?",
+      [email]
+    );
+    if (!user) return res.status(401).json({ success: false, message: "존재하지 않는 사용자" });
+
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) return res.status(401).json({ success: false, message: "비밀번호 불일치" });
+
+    const token = jwt.sign(
+      { user_id: user.user_id, username: user.username },
+      JWT_SECRET,
+      { expiresIn: "12h" }
+    );
+
+    return res.json({ success: true, token, user_id: user.user_id });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
 // ====================================================
 // ✅ [5] CRON — 자동 실패만 유지
 // ====================================================
