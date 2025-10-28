@@ -1,8 +1,9 @@
 /* ================================================
   Nutrition Challenge Server (v2025.10 - AutoFail Only)
   Node.js 18+ / MySQL 8+
-  ✅ Render / Firebase / Android 연동 완성 버전
+  ✅ Render / Android 연동 완성 버전
   -----------------------------------------------
+  - 회원가입 / 로그인 (bcrypt + JWT)
   - 동적 챌린지 생성 / 성공률 계산
   - 관리자 로그인 + 식단 추가 + 로그
   - BMI 기록 + 가이드 조회
@@ -16,9 +17,7 @@ const mysql = require("mysql2/promise");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
-
 require("dotenv").config();
-
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -35,14 +34,76 @@ const pool = mysql.createPool({
   dateStrings: true,
 });
 
-
 // --------------------- 미들웨어 ---------------------
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // ✅ Postman form-urlencoded 지원
 app.use("/images", express.static("public/images"));
 
 // --------------------- 헬스 체크 ---------------------
 app.get("/", (req, res) => res.send("🚀 서버 연결 성공!"));
+
+// ====================================================
+// ✅ [회원가입 API]
+// ====================================================
+app.post("/signup", async (req, res) => {
+  const { username, password, nickname } = req.body;
+
+  if (!username || !password)
+    return res.status(400).json({ success: false, message: "필수 항목 누락" });
+
+  try {
+    // 아이디 중복 확인
+    const [rows] = await pool.query("SELECT * FROM users WHERE username = ?", [username]);
+    if (rows.length > 0)
+      return res.status(400).json({ success: false, message: "이미 존재하는 사용자입니다." });
+
+    // 비밀번호 암호화
+    const hash = await bcrypt.hash(password, 10);
+
+    // 새 유저 등록
+    const [result] = await pool.query(
+      "INSERT INTO users (username, password_hash, nickname) VALUES (?, ?, ?)",
+      [username, hash, nickname ?? null]
+    );
+
+    res.json({
+      success: true,
+      message: "회원가입 완료",
+      user_id: result.insertId,
+    });
+  } catch (err) {
+    console.error("회원가입 오류:", err);
+    res.status(500).json({ success: false, message: "서버 오류" });
+  }
+});
+
+// ====================================================
+// ✅ [로그인 API]
+// ====================================================
+app.post("/login", async (req, res) => {
+  const { email, password } = req.body; // 앱에서 etId = 이메일 입력 → username으로 매핑
+  try {
+    const [[user]] = await pool.query(
+      "SELECT user_id, username, password_hash FROM users WHERE username=?",
+      [email]
+    );
+    if (!user) return res.status(401).json({ success: false, message: "존재하지 않는 사용자" });
+
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) return res.status(401).json({ success: false, message: "비밀번호 불일치" });
+
+    const token = jwt.sign(
+      { user_id: user.user_id, username: user.username },
+      JWT_SECRET,
+      { expiresIn: "12h" }
+    );
+
+    return res.json({ success: true, token, user_id: user.user_id });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
 
 // ====================================================
 // ✅ [1] 카테고리 / 식단 / 가이드
@@ -96,14 +157,9 @@ app.get("/meals/:id", async (req, res) => {
     );
     if (!mealInfo) return res.status(404).json({ message: "식단을 찾을 수 없습니다." });
 
-    // ✅ amount가 NULL일 경우 "0"으로 처리
     const [ingredients] = await pool.query(
-      `SELECT 
-         ingredient, 
-         COALESCE(amount, '0') AS amount, 
-         unit 
-       FROM meal_ingredients 
-       WHERE meal_id = ?`,
+      `SELECT ingredient, COALESCE(amount, '0') AS amount, unit 
+       FROM meal_ingredients WHERE meal_id = ?`,
       [mealId]
     );
 
@@ -269,32 +325,6 @@ app.post("/admin/meals", requireAdmin("editor"), async (req, res) => {
   }
 });
 
-// 로그인 (이메일 입력칸 = username 컬럼에 저장했다고 가정)
-app.post("/login", async (req, res) => {
-  const { email, password } = req.body;  // 앱에서 etId=이메일 입력
-  try {
-    const [[user]] = await pool.query(
-      "SELECT user_id, username, password_hash FROM users WHERE username=?",
-      [email]
-    );
-    if (!user) return res.status(401).json({ success: false, message: "존재하지 않는 사용자" });
-
-    const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) return res.status(401).json({ success: false, message: "비밀번호 불일치" });
-
-    const token = jwt.sign(
-      { user_id: user.user_id, username: user.username },
-      JWT_SECRET,
-      { expiresIn: "12h" }
-    );
-
-    return res.json({ success: true, token, user_id: user.user_id });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-
 // ====================================================
 // ✅ [5] CRON — 자동 실패만 유지
 // ====================================================
@@ -324,7 +354,6 @@ cron.schedule(
 pool.query("SELECT * FROM test_table")
   .then(([rows]) => console.log("✅ DB 연결 성공:", rows))
   .catch((err) => console.error("❌ DB 연결 실패:", err.message));
-
 
 // ====================================================
 // ✅ [6] 서버 실행
