@@ -313,6 +313,61 @@ app.post("/admin/meals", requireAdmin("editor"), async (req, res) => {
   }
 });
 
+// ✅ [NEW] 사용자 프로필 조회
+// GET /users/:id
+app.get("/users/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // users + categories 조인해서 카테고리 이름을 keyword로 내려줌
+    const [rows] = await pool.query(
+      `
+      SELECT 
+        u.id,
+        u.email,
+        u.nickname,
+        u.gender,
+        u.category_id,
+        c.name AS category_name
+      FROM users u
+      LEFT JOIN categories c ON c.id = u.category_id
+      WHERE u.id = ?
+      `,
+      [id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ message: "사용자 없음" });
+    }
+
+    const u = rows[0];
+
+    // Android UserProfile에 맞춘 파생 필드 구성
+    const name = u.nickname || ""; // 앱에서 tv_name에 표시
+    const displayName =
+      u.nickname ||
+      (u.email ? u.email.split("@")[0] : ""); // 앱 상단 textUsername
+    const keyword = u.category_name || ""; // "선택한 식단" 칸에 표시
+
+    // 최종 응답(JSON)
+    res.json({
+      id: u.id,
+      email: u.email || "",
+      nickname: u.nickname || "",
+      gender: u.gender || "",
+      category_id: u.category_id || null,
+      // 앱에서 바로 쓰는 파생 필드들
+      name,
+      displayName,
+      keyword,
+    });
+  } catch (error) {
+    console.error("❌ 사용자 정보 조회 오류:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 // ====================================================
 // ✅ [5] CRON — 자동 실패만 유지
 // ====================================================
