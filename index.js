@@ -47,61 +47,49 @@ app.get("/", (req, res) => res.send("🚀 서버 연결 성공!"));
 // ✅ [회원가입 API]
 // ====================================================
 app.post("/signup", async (req, res) => {
-  const { username, password, nickname } = req.body;
-
-  if (!username || !password)
+  const { email, password, nickname } = req.body;
+  if (!email || !password)
     return res.status(400).json({ success: false, message: "필수 항목 누락" });
 
   try {
-    // 아이디 중복 확인
-    const [rows] = await pool.query("SELECT * FROM users WHERE username = ?", [username]);
-    if (rows.length > 0)
-      return res.status(400).json({ success: false, message: "이미 존재하는 사용자입니다." });
-
-    // 비밀번호 암호화
     const hash = await bcrypt.hash(password, 10);
-
-    // 새 유저 등록
-    const [result] = await pool.query(
-      "INSERT INTO users (username, password_hash, nickname) VALUES (?, ?, ?)",
-      [username, hash, nickname ?? null]
+    await pool.query(
+      "INSERT INTO users (email, password, nickname, category_id) VALUES (?, ?, ?, 1)",
+      [email, hash, nickname]
     );
-
-    res.json({
-      success: true,
-      message: "회원가입 완료",
-      user_id: result.insertId,
-    });
+    res.json({ success: true, message: "회원가입 완료" });
   } catch (err) {
     console.error("회원가입 오류:", err);
     res.status(500).json({ success: false, message: "서버 오류" });
   }
 });
 
-// ====================================================
-// ✅ [로그인 API]
-// ====================================================
+
+// 로그인
 app.post("/login", async (req, res) => {
-  const { email, password } = req.body; // 앱에서 etId = 이메일 입력 → username으로 매핑
+  const { email, password } = req.body;
   try {
     const [[user]] = await pool.query(
-      "SELECT user_id, username, password_hash FROM users WHERE username=?",
+      "SELECT id, email, password FROM users WHERE email=?",
       [email]
     );
-    if (!user) return res.status(401).json({ success: false, message: "존재하지 않는 사용자" });
+    if (!user)
+      return res.status(401).json({ success: false, message: "존재하지 않는 사용자" });
 
-    const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) return res.status(401).json({ success: false, message: "비밀번호 불일치" });
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok)
+      return res.status(401).json({ success: false, message: "비밀번호 불일치" });
 
     const token = jwt.sign(
-      { user_id: user.user_id, username: user.username },
+      { user_id: user.id, email: user.email },
       JWT_SECRET,
       { expiresIn: "12h" }
     );
 
-    return res.json({ success: true, token, user_id: user.user_id });
+    res.json({ success: true, token, user_id: user.id });
   } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
+    console.error("로그인 오류:", err);
+    res.status(500).json({ success: false, message: "서버 오류" });
   }
 });
 
