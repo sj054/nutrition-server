@@ -441,10 +441,15 @@ cron.schedule(
   { timezone: "Asia/Seoul" }
 );
 
-// ✅ DB 연결 테스트용 (임시)
-pool.query("SELECT * FROM test_table")
-  .then(([rows]) => console.log("✅ DB 연결 성공:", rows))
-  .catch((err) => console.error("❌ DB 연결 실패:", err.message));
+// ✅ DB 연결 및 실제 meals 데이터 존재 여부 확인
+pool.query("SELECT COUNT(*) AS cnt FROM meals")
+  .then(([rows]) => {
+    console.log("🍽️ Render DB 내 meals 개수:", rows[0].cnt);
+  })
+  .catch((err) => {
+    console.error("❌ meals 테이블 접근 실패:", err.message);
+  });
+
 
 // ====================================================
 // ✅ [6] 서버 실행
