@@ -37,7 +37,7 @@ const pool = mysql.createPool({
 // --------------------- 미들웨어 ---------------------
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // ✅ Postman form-urlencoded 지원
+app.use(express.urlencoded({ extended: true }));
 app.use("/images", express.static("public/images"));
 
 // --------------------- 헬스 체크 ---------------------
@@ -65,14 +65,19 @@ app.post("/signup", async (req, res) => {
 });
 
 
-// 로그인
+// ====================================================
+// ✅ [로그인 API] (category_id 포함 버전)
+// ====================================================
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
+
   try {
+    // ✅ DB에서 id, password, category_id까지 조회
     const [[user]] = await pool.query(
-      "SELECT id, email, password FROM users WHERE email=?",
+      "SELECT id AS user_id, email, password, category_id FROM users WHERE email = ?",
       [email]
     );
+
     if (!user)
       return res.status(401).json({ success: false, message: "존재하지 않는 사용자" });
 
@@ -81,12 +86,19 @@ app.post("/login", async (req, res) => {
       return res.status(401).json({ success: false, message: "비밀번호 불일치" });
 
     const token = jwt.sign(
-      { user_id: user.id, email: user.email },
+      { user_id: user.user_id, email: user.email },
       JWT_SECRET,
       { expiresIn: "12h" }
     );
 
-    res.json({ success: true, token, user_id: user.id });
+    // ✅ category_id 함께 반환
+    res.json({
+      success: true,
+      token,
+      user_id: user.user_id,
+      category_id: user.category_id,
+      message: "로그인 성공",
+    });
   } catch (err) {
     console.error("로그인 오류:", err);
     res.status(500).json({ success: false, message: "서버 오류" });
@@ -175,6 +187,42 @@ app.get("/category-guides/:categoryId", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ====================================================
+// ✅ [NEW] 오늘의 식단 (아침/점심/저녁별 조회)
+// ====================================================
+app.get("/meals/today", async (req, res) => {
+  const { time } = req.query; // breakfast / lunch / dinner
+
+  try {
+    // 오늘 날짜 기준 (기본적으로 meal_time 컬럼 기준)
+    const [rows] = await pool.query(
+      `
+      SELECT 
+        m.meal_id AS id,
+        m.name,
+        m.description,
+        m.meal_time,
+        m.image_url
+      FROM meals m
+      WHERE m.meal_time = ?
+      ORDER BY RAND()
+      LIMIT 3
+      `,
+      [time]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ message: "해당 시간대 식단이 없습니다." });
+    }
+
+    res.json(rows);
+  } catch (err) {
+    console.error("❌ 오늘 식단 조회 오류:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // ====================================================
 // ✅ [2] 챌린지 생성 / 조회 / 결과
