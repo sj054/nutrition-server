@@ -45,24 +45,33 @@ app.get("/", (req, res) => res.send("🚀 서버 연결 성공!"));
 
 // ====================================================
 // ✅ [회원가입 API]
-// ====================================================
 app.post("/signup", async (req, res) => {
-  const { email, password, nickname } = req.body;
-  if (!email || !password)
-    return res.status(400).json({ success: false, message: "필수 항목 누락" });
+  const { email, password, nickname, gender, category_id } = req.body;
+
+  // ✅ 필수값 체크
+  if (!email || !password || !category_id) {
+    return res.status(400).json({
+      success: false,
+      message: "이메일, 비밀번호, 카테고리 ID는 필수입니다.",
+    });
+  }
 
   try {
     const hash = await bcrypt.hash(password, 10);
     await pool.query(
-      "INSERT INTO users (email, password, nickname, category_id) VALUES (?, ?, ?, 1)",
-      [email, hash, nickname]
+      "INSERT INTO users (email, password, nickname, gender, category_id) VALUES (?, ?, ?, ?, ?)",
+      [email, hash, nickname ?? null, gender ?? null, category_id]
     );
     res.json({ success: true, message: "회원가입 완료" });
   } catch (err) {
+    if (err.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({ success: false, message: "이미 사용 중인 이메일입니다." });
+    }
     console.error("회원가입 오류:", err);
     res.status(500).json({ success: false, message: "서버 오류" });
   }
 });
+
 
 
 // ====================================================
