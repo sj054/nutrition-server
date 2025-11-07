@@ -268,37 +268,31 @@ app.get("/category-guides/:categoryId", async (req, res) => {
 // ====================================================
 // ✅ [NEW] 오늘의 식단 (아침/점심/저녁별 조회)
 // ====================================================
+// ✅ 오늘의 식단 (공백 깨끗한 버전)
 app.get("/meals/today", async (req, res) => {
-  const { time } = req.query; // breakfast / lunch / dinner
+  const time = req.query.time; // "breakfast" / "lunch" / "dinner"
 
-  try {
-    // 오늘 날짜 기준 (기본적으로 meal_time 컬럼 기준)
-    const [rows] = await pool.query(
-      `
-      SELECT 
-        m.meal_id AS id,
-        m.name,
-        m.description,
-        m.meal_time,
-        m.image_url
-      FROM meals m
-      WHERE m.meal_time = ?
-      ORDER BY RAND()
-      LIMIT 3
-      `,
-      [time]
-    );
+  try {
+    const [rows] = await pool.query(
+      "SELECT m.meal_id AS id, m.name, m.description, m.meal_time, m.image_url " +
+      "FROM meals m " +
+      "WHERE LOWER(m.meal_time) = LOWER(?) " +
+      "ORDER BY RAND() " +
+      "LIMIT 3",
+      [time]
+    );
 
-    if (!rows.length) {
-      return res.status(404).json({ message: "해당 시간대 식단이 없습니다." });
-    }
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "해당 시간대 식단이 없습니다." });
+    }
 
-    res.json(rows);
-  } catch (err) {
-    console.error("❌ 오늘 식단 조회 오류:", err);
-    res.status(500).json({ error: err.message });
-  }
+    res.json(rows);
+  } catch (err) {
+    console.error("❌ 오늘 식단 조회 오류:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
+
 
 
 // ====================================================
@@ -438,60 +432,46 @@ app.post("/admin/meals", requireAdmin("editor"), async (req, res) => {
   }
 });
 
-// ✅ [NEW] 사용자 프로필 조회 (username 추가)
-// GET /users/:id
+// ✅ 사용자 프로필 조회 (공백 깨끗한 버전)
 app.get("/users/:id", async (req, res) => {
-  const { id } = req.params;
+  const id = req.params.id;
 
-  try {
-    // [수정] username 컬럼 추가
-    const [rows] = await pool.query(
-      `
-      SELECT 
-        u.id,
-        u.username, 
-        u.email,
-        u.nickname,
-        u.gender,
-        u.category_id,
-        c.name AS category_name
-      FROM users u
-      LEFT JOIN categories c ON c.id = u.category_id
-      WHERE u.id = ?
-      `,
-      [id]
-    );
+  try {
+    const [rows] = await pool.query(
+      "SELECT u.id, u.username, u.email, u.nickname, u.gender, u.category_id, c.name AS category_name " +
+      "FROM users u " +
+      "LEFT JOIN categories c ON c.id = u.category_id " +
+      "WHERE u.id = ?",
+      [id]
+    );
 
-    if (!rows.length) {
-      return res.status(404).json({ message: "사용자 없음" });
-    }
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "사용자 없음" });
+    }
 
-    const u = rows[0];
+    const u = rows[0];
 
-    // Android UserProfile에 맞춘 파생 필드 구성
-    const name = u.nickname || ""; // 앱에서 tv_name에 표시
-    // [수정] displayName을 username (아이디) 기준으로 변경
-    const displayName = u.username || u.nickname || (u.email ? u.email.split("@")[0] : ""); 
-    const keyword = u.category_name || ""; // "선택한 식단" 칸에 표시
+    const name = u.nickname || "";
+    const displayName = u.username || u.nickname || (u.email ? u.email.split("@")[0] : "");
+    const keyword = u.category_name || "";
 
-    // 최종 응답(JSON)
-    res.json({
-      id: u.id,
-      email: u.email || "",
-      username: u.username || "", // [수정] username 추가
-      nickname: u.nickname || "",
-      gender: u.gender || "",
-      category_id: u.category_id || null,
-      // 앱에서 바로 쓰는 파생 필드들
-      name,
-      displayName,
-      keyword,
-    });
-  } catch (error) {
-    console.error("❌ 사용자 정보 조회 오류:", error);
-    res.status(500).json({ error: error.message });
-  }
+    res.json({
+      id: u.id,
+      email: u.email || "",
+      username: u.username || "",
+      nickname: u.nickname || "",
+      gender: u.gender || "",
+      category_id: u.category_id || null,
+      name,
+      displayName,
+      keyword,
+    });
+  } catch (error) {
+    console.error("❌ 사용자 정보 조회 오류:", error);
+    res.status(500).json({ error: error.message });
+  }
 });
+
 
 
 // ====================================================
