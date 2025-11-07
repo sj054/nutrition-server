@@ -203,24 +203,31 @@ app.get("/meals", async (_, res) => {
   }
 });
 
+// index.js 파일에서 이 부분을 찾아서 교체하세요.
+
 app.get("/meals/category/:id", async (req, res) => {
-  const { id } = req.params;
-  const { meal_time } = req.query;
-  let sql = `
-    SELECT m.meal_id AS id, m.name, m.description, m.meal_time
-    FROM meals m
-    JOIN meal_categories mc ON mc.meal_id = m.meal_id
-    WHERE mc.category_id = ?
-  `;
+  const id = req.params.id;
+  const meal_time = req.query.meal_time;
+  
+  // [수정] SQL 쿼리를 깨끗하게 다시 작성
+  let sql = 
+    "SELECT m.meal_id AS id, m.name, m.description, m.meal_time " +
+    "FROM meals m " +
+    "JOIN meal_categories mc ON mc.meal_id = m.meal_id " +
+    "WHERE mc.category_id = ?";
+    
   const params = [id];
+  
   if (meal_time) {
-    sql += " AND m.meal_time=?";
+    sql += " AND m.meal_time = ?"; // [수정] LOWER() 제거 (DB에 이미 영어로 저장됨)
     params.push(meal_time);
   }
+  
   try {
     const [rows] = await pool.query(sql, params);
     res.json(rows);
   } catch (err) {
+    console.error("❌ /meals/category/:id 오류:", err);
     res.status(500).json({ error: err.message });
   }
 });
