@@ -203,34 +203,45 @@ app.get("/meals", async (_, res) => {
   }
 });
 
-// index.js 파일에서 이 부분을 찾아서 교체하세요.
-
+// ✅ 카테고리별 식단 (meal_time 지원 + 컬럼명 호환 완전판)
 app.get("/meals/category/:id", async (req, res) => {
   const { id } = req.params;
   const { meal_time } = req.query;
 
   let sql = `
-    SELECT m.meal_id AS id, m.name, m.description, m.meal_time, m.image_url
-    FROM meals m
-    JOIN meal_categories mc ON mc.meal_id = m.meal_id
+    SELECT 
+      m.meal_id AS id,
+      m.name,
+      m.description,
+      m.meal_time,
+      m.image_url
+    FROM meals AS m
+    INNER JOIN meal_categories AS mc ON mc.meal_id = m.meal_id
     WHERE mc.category_id = ?
   `;
   const params = [id];
 
+  // ✅ meal_time 필터 지원
   if (meal_time) {
     sql += " AND LOWER(m.meal_time) = LOWER(?)";
     params.push(meal_time);
   }
 
+  sql += " ORDER BY RAND() LIMIT 3";
+
   try {
     const [rows] = await pool.query(sql, params);
-    if (!rows.length)
-      return res.status(404).json({ message: "해당 카테고리의 식단이 없습니다." });
+    if (!rows.length) {
+      return res.status(404).json({ message: "식단을 찾을 수 없습니다." });
+    }
     res.json(rows);
   } catch (err) {
+    console.error("❌ /meals/category/:id 오류:", err);
     res.status(500).json({ error: err.message });
   }
 });
+
+
 
 
 app.get("/meals/:id", async (req, res) => {
@@ -523,3 +534,5 @@ pool.query("SELECT COUNT(*) AS cnt FROM meals")
 app.listen(port, () => {
   console.log(`🚀 서버 실행 중: http://localhost:${port}`);
 });
+
+// 피곤하고 힘들어죽겠는데 왜 안 되는지 ㅈㄴ 의문이네 미친것
