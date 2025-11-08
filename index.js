@@ -204,36 +204,43 @@ app.get("/meals", async (_, res) => {
 });
 
 // ✅ 카테고리별 식단 (meal_time 지원 + 컬럼명 호환 완전판)
-app.get("/meals/:id", async (req, res) => {
-  const mealId = req.params.id;
+app.get("/meals/category/:id", async (req, res) => {
+  const { id } = req.params;
+  const { meal_time } = req.query;
+
+  let sql = `
+    SELECT 
+      m.meal_id AS id,
+      m.name,
+      m.description,
+      m.meal_time,
+      m.image_url
+    FROM meals AS m
+    INNER JOIN meal_categories AS mc ON mc.meal_id = m.meal_id
+    WHERE mc.category_id = ?
+  `;
+  const params = [id];
+
+  if (meal_time) {
+    // ✅ Render 호환용으로 수정
+    sql += " AND m.meal_time = ?";
+    params.push(meal_time);
+  }
+
+  sql += " ORDER BY RAND() LIMIT 3";
+
   try {
-    const [[mealInfo]] = await pool.query(
-      "SELECT meal_id AS meal_id, name, image_url, description, meal_time FROM meals WHERE meal_id = ?",
-      [mealId]
-    );
-
-    if (!mealInfo) return res.status(404).json({ message: "식단을 찾을 수 없습니다." });
-
-    const [ingredients] = await pool.query(
-      "SELECT ingredient, COALESCE(amount, '0') AS amount, unit FROM meal_ingredients WHERE meal_id = ?",
-      [mealId]
-    );
-
-    const [recipes] = await pool.query(
-      "SELECT step_number, instruction FROM meal_recipes WHERE meal_id = ? ORDER BY step_number ASC",
-      [mealId]
-    );
-
-    res.json({
-      ...mealInfo,
-      ingredients,
-      recipes,
-    });
+    const [rows] = await pool.query(sql, params);
+    if (!rows.length) {
+      return res.status(404).json({ message: "식단을 찾을 수 없습니다." });
+    }
+    res.json(rows);
   } catch (err) {
-    console.error("❌ Meal detail query error:", err);
+    console.error("❌ /meals/category/:id 오류:", err);
     res.status(500).json({ error: err.message });
   }
 });
+
 
 
 
