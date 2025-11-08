@@ -222,8 +222,7 @@ app.get("/meals/category/:id", async (req, res) => {
   const params = [id];
 
   if (meal_time) {
-    // ✅ Render 호환용으로 수정
-    sql += " AND m.meal_time = ?";
+    sql += " AND m.meal_time COLLATE utf8mb4_general_ci = ?";
     params.push(meal_time);
   }
 
@@ -231,15 +230,20 @@ app.get("/meals/category/:id", async (req, res) => {
 
   try {
     const [rows] = await pool.query(sql, params);
-    if (!rows.length) {
+    console.log("✅ /meals/category 결과:", rows); // ✅ 로그 추가
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      console.log("⚠️ rows가 비었음:", rows);
       return res.status(404).json({ message: "식단을 찾을 수 없습니다." });
     }
+
     res.json(rows);
   } catch (err) {
     console.error("❌ /meals/category/:id 오류:", err);
     res.status(500).json({ error: err.message });
   }
 });
+
 
 
 
