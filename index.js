@@ -210,13 +210,13 @@ app.get("/meals/category/:id", async (req, res) => {
 
   let sql = `
     SELECT 
-      m.meal_id AS id,
+      m.id AS meal_id,
       m.name,
       m.description,
       m.meal_time,
       m.image_url
     FROM meals AS m
-    INNER JOIN meal_categories AS mc ON mc.meal_id = m.meal_id
+    INNER JOIN meal_categories AS mc ON mc.meal_id = m.id
     WHERE mc.category_id = ?
   `;
   const params = [id];
