@@ -248,9 +248,10 @@ app.get("/meals/:id", async (req, res) => {
   const mealId = req.params.id;
   try {
     const [[mealInfo]] = await pool.query(
-      "SELECT meal_id, name, image_url, description, meal_time FROM meals WHERE meal_id = ?",
-      [mealId]
-    );
+  "SELECT id AS meal_id, name, image_url, description, meal_time FROM meals WHERE id = ?",
+  [mealId]
+);
+
     if (!mealInfo) return res.status(404).json({ message: "식단을 찾을 수 없습니다." });
 
     const [ingredients] = await pool.query(
@@ -535,4 +536,3 @@ app.listen(port, () => {
   console.log(`🚀 서버 실행 중: http://localhost:${port}`);
 });
 
-// 피곤하고 힘들어죽겠는데 왜 안 되는지 ㅈㄴ 의문이네 미친것
