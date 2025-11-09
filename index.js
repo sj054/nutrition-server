@@ -255,7 +255,7 @@ app.get("/meals/today", async (req, res) => {
   const time = req.query.time;
   try {
     const [rows] = await pool.query(
-      "SELECT meal_id AS id, name, description, meal_time, image_url FROM meals WHERE LOWER(meal_time)=LOWER(?) ORDER BY RAND() LIMIT 3",
+      "SELECT meal_id AS id, name, description, meal_time, image_url FROM meals WHERE LOWER(meal_time)=LOWER(?) ORDER BY m.meal_id DESC",
       [time]
     );
     if (rows.length === 0)
