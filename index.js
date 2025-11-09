@@ -299,6 +299,61 @@ app.get("/users/:id", async (req, res) => {
   }
 });
 
+
+// ✅ 프로필 수정
+app.patch("/users/:id", async (req, res) => {
+  const userId = req.params.id;
+  const { nickname, category_id, profileId } = req.body;
+
+  try {
+    // 동적으로 업데이트할 컬럼만 모아서 쿼리 만들기
+    const fields = [];
+    const values = [];
+
+    if (nickname !== undefined) {
+      fields.push("nickname = ?");
+      values.push(nickname);
+    }
+    if (category_id !== undefined) {
+      fields.push("category_id = ?");
+      values.push(category_id);
+    }
+    if (profileId !== undefined) {
+      fields.push("profile_image = ?");
+      values.push(profileId);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ message: "업데이트할 필드가 없습니다." });
+    }
+
+    values.push(userId);
+
+    const [result] = await pool.query(
+      `UPDATE users SET ${fields.join(", ")} WHERE id = ?`,
+      values
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "사용자 없음" });
+    }
+
+    // 수정된 사용자 다시 내려주기
+    const [[user]] = await pool.query(
+      "SELECT id, username, email, nickname, gender, category_id FROM users WHERE id = ?",
+      [userId]
+    );
+
+    res.json(user);
+  } catch (err) {
+    console.error("❌ /users/:id PATCH error:", err);
+    res.status(500).json({ message: "서버 오류" });
+  }
+});
+
+
+
+
 // ====================================================
 // ✅ [CRON - 자동 실패]
 cron.schedule(
