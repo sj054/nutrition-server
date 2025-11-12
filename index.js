@@ -267,6 +267,36 @@ app.get("/meals/today", async (req, res) => {
 });
 
 // ====================================================
+// ✅ [QnA 목록 조회]
+app.get("/qna/list", async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT q.id, q.user_id, u.nickname, q.question, q.answer, q.created_at FROM qna q LEFT JOIN users u ON u.id = q.user_id ORDER BY q.created_at DESC"
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("❌ QnA 목록 오류:", err);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+// ✅ [QnA 등록]
+app.post("/qna/add", async (req, res) => {
+  const { user_id, question } = req.body;
+  if (!user_id || !question) {
+    return res.status(400).json({ error: "user_id와 question은 필수입니다." });
+  }
+  try {
+    await pool.query("INSERT INTO qna (user_id, question) VALUES (?, ?)", [user_id, question]);
+    res.json({ success: true, message: "질문 등록 완료" });
+  } catch (err) {
+    console.error("❌ QnA 등록 오류:", err);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+
+// ====================================================
 // ✅ [사용자 프로필 조회]
 app.get("/users/:id", async (req, res) => {
   const id = req.params.id;
