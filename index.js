@@ -487,6 +487,29 @@ app.post('/challenge/week-result', (req, res) => {
     });
 });
 
+app.get('/stickers/:user_id', (req, res) => {
+    const user_id = req.params.user_id;
+
+    const query = `
+        SELECT sticker_code
+        FROM user_stickers
+        WHERE user_id = ?
+    `;
+
+    db.query(query, [user_id], (err, rows) => {
+        if (err) {
+            console.log(err);
+            return res.status(500).json({ message: "DB Error (get stickers)" });
+        }
+
+        const unlocked = rows.map(r => r.sticker_code);
+
+        return res.json({
+            message: "Success",
+            unlocked_stickers: unlocked
+        });
+    });
+});
 
 
 // ====================================================
