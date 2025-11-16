@@ -408,6 +408,87 @@ cron.schedule(
   { timezone: "Asia/Seoul" }
 );
 
+app.post('/challenge/week-result', (req, res) => {
+    const { user_id, week_number, success_rate, most_successful_meal } = req.body;
+
+    if (!user_id || !week_number) {
+        return res.status(400).json({ message: "Missing user_id or week_number" });
+    }
+
+    // 성공 기준(80%)
+    const is_success = success_rate >= 80 ? 1 : 0;
+
+    // 1) user_week_success 저장
+    const query1 = `
+        INSERT INTO user_week_success 
+        (user_id, week_number, success_rate, most_successful_meal, is_success, updated_at)
+        VALUES (?, ?, ?, ?, ?, NOW())
+        ON DUPLICATE KEY UPDATE
+            success_rate = VALUES(success_rate),
+            most_successful_meal = VALUES(most_successful_meal),
+            is_success = VALUES(is_success),
+            updated_at = NOW();
+    `;
+
+    db.query(query1, [user_id, week_number, success_rate, most_successful_meal, is_success], (err) => {
+        if (err) {
+            console.log(err);
+            return res.status(500).json({ message: "DB Error (week save)" });
+        }
+
+        // 성공률 80% 미만 → 해금 없음
+        if (!is_success) {
+            return res.json({ message: "Week saved. No unlock." });
+        }
+
+        // 2) 성공한 주차 개수 가져오기 (스티커 개수와 동일)
+        const countQuery = `
+            SELECT COUNT(*) AS cnt
+            FROM user_week_success
+            WHERE user_id = ? AND is_success = 1;
+        `;
+
+        db.query(countQuery, [user_id], (err2, rows) => {
+            if (err2) {
+                console.log(err2);
+                return res.status(500).json({ message: "DB Error (count)" });
+            }
+
+            const successCount = rows[0].cnt;
+
+            // 스티커 목록 (순서대로 해금됨)
+            const STICKERS = ["profile_1", "profile_2", "profile_3", "profile_4"];
+
+            // successCount = 1 → profile_2
+            const unlockSticker = STICKERS[successCount];
+
+            if (!unlockSticker) {
+                return res.json({ message: "All stickers already unlocked." });
+            }
+
+            // 3) 스티커 해금 (중복 방지: INSERT IGNORE)
+            const insertStickerQuery = `
+                INSERT IGNORE INTO user_stickers (user_id, sticker_code, unlocked_at)
+                VALUES (?, ?, NOW());
+            `;
+
+            db.query(insertStickerQuery, [user_id, unlockSticker], (err3) => {
+                if (err3) {
+                    console.log(err3);
+                    return res.status(500).json({ message: "DB Error (unlock sticker)" });
+                }
+
+                return res.json({
+                    message: "Week saved + sticker unlocked",
+                    unlocked: unlockSticker
+                });
+            });
+        });
+    });
+});
+
+
+
 // ====================================================
 // ✅ 서버 실행
 app.listen(port, () => {
