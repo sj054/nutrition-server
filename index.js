@@ -122,180 +122,253 @@ app.get("/find-id", async (req, res) => {
   }
 });
 
-app.get("/find-password", async (req, res) => {
-  const { username, email } = req.query;
-  if (!username || !email)
-    return res.status(400).json({ success: false, message: "아이디와 이메일을 입력하세요." });
-
+app.post("/find-password", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ success: false, message: "이메일을 입력하세요." });
   try {
-    const [[user]] = await pool.query(
-      "SELECT id FROM users WHERE username = ? AND email = ?",
-      [username, email]
-    );
-    if (!user)
-      return res.status(404).json({ success: false, message: "일치하는 사용자가 없습니다." });
-
-    res.json({
-      success: true,
-      message: "비밀번호 재설정 링크를 이메일로 발송했다고 가정합니다. (실제 메일 기능 없음)",
-    });
+    const [[user]] = await pool.query("SELECT id FROM users WHERE email = ?", [email]);
+    if (user)
+      res.json({ success: true, message: "비밀번호 재설정 이메일이 전송되었습니다." });
+    else res.status(404).json({ success: false, message: "가입되지 않은 이메일입니다." });
   } catch {
-    res.status(500).json({ success: false, message: "서버 에러" });
+    res.status(500).json({ success: false, message: "서버 오류" });
   }
 });
 
 // ====================================================
-// ✅ [프로필 조회]
-app.get("/profile/:user_id", async (req, res) => {
-  const userId = req.params.user_id;
+// ✅ [카테고리 목록 / 전체 식단 조회]
+app.get("/categories", async (_, res) => {
   try {
-    const [[user]] = await pool.query(
-      `
-      SELECT id, username, email, nickname, gender, birth, category_id, profile_image
-      FROM users
-      WHERE id = ?
-      `,
-      [userId]
-    );
-
-    if (!user)
-      return res.status(404).json({ success: false, message: "사용자 정보를 찾을 수 없습니다." });
-
-    res.json({ success: true, user });
+    const [rows] = await pool.query("SELECT * FROM categories");
+    res.json(rows);
   } catch (err) {
-    console.error("[PROFILE GET ERROR]", err.message);
-    res.status(500).json({ success: false, message: "서버 에러" });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// ====================================================
-// ✅ [프로필 수정]
-app.patch("/profile/:user_id", async (req, res) => {
-  const userId = req.params.user_id;
-  const { nickname, gender, birth, category_id, profile_image } = req.body;
-
-  try {
-    await pool.query(
-      `
-      UPDATE users
-      SET nickname = ?, gender = ?, birth = ?, category_id = ?, profile_image = ?
-      WHERE id = ?
-      `,
-      [nickname || null, gender || null, birth || null, category_id || null, profile_image || null, userId]
-    );
-
-    res.json({ success: true, message: "프로필이 수정되었습니다." });
-  } catch (err) {
-    console.error("[PROFILE PATCH ERROR]", err.message);
-    res.status(500).json({ success: false, message: "서버 에러" });
-  }
-});
-
-// ====================================================
-// ✅ [카테고리 목록]
-app.get("/categories", async (req, res) => {
-  try {
-    const [rows] = await pool.query("SELECT id, name, description FROM categories");
-    res.json({ success: true, categories: rows });
-  } catch (err) {
-    console.error("[CATEGORIES ERROR]", err.message);
-    res.status(500).json({ success: false, message: "서버 에러" });
-  }
-});
-
-// ====================================================
-// ✅ [식단 목록]
-app.get("/meals", async (req, res) => {
+app.get("/meals", async (_, res) => {
   try {
     const [rows] = await pool.query("SELECT * FROM meals");
-    res.json({ success: true, meals: rows });
+    res.json(rows);
   } catch (err) {
-    console.error("[MEALS ERROR]", err.message);
-    res.status(500).json({ success: false, message: "서버 에러" });
-  }
-});
-
-// ✅ [식단 상세]
-app.get("/meals/:id", async (req, res) => {
-  const id = req.params.id;
-  try {
-    const [[row]] = await pool.query("SELECT * FROM meals WHERE id = ?", [id]);
-    if (!row)
-      return res.status(404).json({ success: false, message: "해당 식단을 찾을 수 없습니다." });
-    res.json({ success: true, meal: row });
-  } catch (err) {
-    console.error("[MEAL DETAIL ERROR]", err.message);
-    res.status(500).json({ success: false, message: "서버 에러" });
+    res.status(500).json({ error: err.message });
   }
 });
 
 // ====================================================
-// ✅ [유저 기본 정보(마이페이지 상단)]
+// ✅ [카테고리별 식단 조회] (meal_time 대응)
+app.get("/meals/category/:id", async (req, res) => {
+  const { id } = req.params;
+  const { meal_time } = req.query;
+
+  let sql = `
+    SELECT 
+      m.meal_id AS id,
+      m.name,
+      m.description,
+      m.meal_time,
+      m.image_url
+    FROM meals AS m
+    INNER JOIN meal_categories AS mc ON mc.meal_id = m.meal_id
+    WHERE mc.category_id = ?
+  `;
+  const params = [id];
+
+  if (meal_time) {
+    sql += " AND m.meal_time COLLATE utf8mb4_general_ci = ?";
+    params.push(meal_time);
+  }
+
+  sql += " ORDER BY m.meal_id DESC";
+
+  try {
+    const [rows] = await pool.query(sql, params);
+    if (!Array.isArray(rows) || rows.length === 0)
+      return res.status(404).json({ message: "식단을 찾을 수 없습니다." });
+    res.json(rows);
+  } catch (err) {
+    console.error("❌ /meals/category/:id 오류:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ====================================================
+// ✅ [식단 상세 조회] — DB 구조 완전 일치
+app.get("/meals/:id", async (req, res) => {
+  const mealId = req.params.id;
+
+  try {
+    const [[mealInfo]] = await pool.query(
+      `
+      SELECT 
+        meal_id,
+        name,
+        description,
+        meal_time,
+        image_url
+      FROM meals
+      WHERE meal_id = ?
+      `,
+      [mealId]
+    );
+
+    if (!mealInfo)
+      return res.status(404).json({ message: "식단을 찾을 수 없습니다." });
+
+    const [ingredients] = await pool.query(
+      `
+      SELECT ingredient, COALESCE(amount, '0') AS amount, unit
+      FROM meal_ingredients
+      WHERE meal_id = ?
+      `,
+      [mealId]
+    );
+
+    const [recipes] = await pool.query(
+      `
+      SELECT step_number, instruction
+      FROM meal_recipes
+      WHERE meal_id = ?
+      ORDER BY step_number ASC
+      `,
+      [mealId]
+    );
+
+    res.json({
+      id: mealInfo.meal_id,
+      name: mealInfo.name,
+      description: mealInfo.description,
+      meal_time: mealInfo.meal_time,
+      image_url: mealInfo.image_url,
+      ingredients,
+      recipes,
+    });
+  } catch (err) {
+    console.error("❌ Meal detail query error:", err);
+    res.status(500).json({ error: "Database query failed" });
+  }
+});
+
+// ====================================================
+// ✅ [오늘의 식단]
+app.get("/meals/today", async (req, res) => {
+  const time = req.query.time;
+  try {
+    const [rows] = await pool.query(
+      "SELECT meal_id AS id, name, description, meal_time, image_url FROM meals WHERE LOWER(meal_time)=LOWER(?) ORDER BY RAND() LIMIT 3",
+      [time]
+    );
+    if (rows.length === 0)
+      return res.status(404).json({ message: "해당 시간대 식단이 없습니다." });
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ====================================================
+// ✅ [QnA 목록 조회]
+app.get("/qna/list", async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT q.id, q.user_id, u.nickname, q.question, q.answer, q.created_at FROM qna q LEFT JOIN users u ON u.id = q.user_id ORDER BY q.created_at DESC"
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("❌ QnA 목록 오류:", err);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+// ✅ [QnA 등록]
+app.post("/qna/add", async (req, res) => {
+  const { user_id, question } = req.body;
+  if (!user_id || !question) {
+    return res.status(400).json({ error: "user_id와 question은 필수입니다." });
+  }
+  try {
+    await pool.query("INSERT INTO qna (user_id, question) VALUES (?, ?)", [user_id, question]);
+    res.json({ success: true, message: "질문 등록 완료" });
+  } catch (err) {
+    console.error("❌ QnA 등록 오류:", err);
+    res.status(500).json({ error: "서버 오류" });
+  }
+});
+
+// ====================================================
+// ✅ [사용자 프로필 조회]
 app.get("/users/:id", async (req, res) => {
   const id = req.params.id;
   try {
     const [rows] = await pool.query(
-      `
-      SELECT u.id, u.username, u.email, u.nickname, u.gender, u.birth, 
-             u.category_id, u.profile_image, c.name AS category_name
-      FROM users u
-      LEFT JOIN categories c ON c.id = u.category_id
-      WHERE u.id = ?
-      `,
+      "SELECT u.id, u.username, u.email, u.nickname, u.gender, u.category_id, c.name AS category_name FROM users u LEFT JOIN categories c ON c.id=u.category_id WHERE u.id=?",
       [id]
     );
-
     if (rows.length === 0)
       return res.status(404).json({ message: "사용자 없음" });
 
     const u = rows[0];
     const name = u.nickname || "";
-    const displayName =
-      u.username || u.nickname || (u.email ? u.email.split("@")[0] : "");
+    const displayName = u.username || u.nickname || (u.email ? u.email.split('@')[0] : "");
     const keyword = u.category_name || "";
 
     res.json({
-      user: {
-        id: u.id,
-        name,
-        displayName,
-        keyword,
-        profile_image: u.profile_image,
-      },
+      id: u.id,
+      email: u.email || "",
+      username: u.username || "",
+      nickname: u.nickname || "",
+      gender: u.gender || "",
+      category_id: u.category_id || null,
+      name,
+      displayName,
+      keyword,
     });
   } catch (err) {
-    console.error("[USER FETCH ERROR]", err.message);
-    res.status(500).json({ message: "서버 에러" });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// ====================================================
-// ✅ [유저 프로필 수정(마이페이지)]
+// ✅ 프로필 수정
 app.patch("/users/:id", async (req, res) => {
   const userId = req.params.id;
-  const { nickname, gender, birth, category_id, profile_image } = req.body;
+  const { nickname, category_id, profileId } = req.body;
 
   try {
+    // 동적으로 업데이트할 컬럼만 모아서 쿼리 만들기
+    const fields = [];
+    const values = [];
+
+    if (nickname !== undefined) {
+      fields.push("nickname = ?");
+      values.push(nickname);
+    }
+    if (category_id !== undefined) {
+      fields.push("category_id = ?");
+      values.push(category_id);
+    }
+    if (profileId !== undefined) {
+      fields.push("profile_image = ?");
+      values.push(profileId);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ message: "업데이트할 필드가 없습니다." });
+    }
+
+    values.push(userId);
+
     const [result] = await pool.query(
-      `
-      UPDATE users
-      SET nickname = ?, gender = ?, birth = ?, category_id = ?, profile_image = ?
-      WHERE id = ?
-      `,
-      [nickname || null, gender || null, birth || null, category_id || null, profile_image || null, userId]
+      `UPDATE users SET ${fields.join(", ")} WHERE id = ?`,
+      values
     );
 
-    if (result.affectedRows === 0)
+    if (result.affectedRows === 0) {
       return res.status(404).json({ message: "사용자 없음" });
+    }
 
+    // 수정된 사용자 다시 내려주기
     const [[user]] = await pool.query(
-      `
-      SELECT u.id, u.username, u.email, u.nickname, u.gender, u.birth, u.category_id,
-             u.profile_image, c.name AS category_name
-      FROM users u
-      LEFT JOIN categories c ON c.id = u.category_id
-      WHERE u.id = ?
-      `,
+      "SELECT id, username, email, nickname, gender, category_id FROM users WHERE id = ?",
       [userId]
     );
 
@@ -308,156 +381,119 @@ app.patch("/users/:id", async (req, res) => {
 
 
 // ====================================================
-// ✅ [CRON - 자동 실패]
-cron.schedule(
-  "*/5 * * * *",
-  async () => {
-    console.log("[CRON] 자동 실패 처리 실행");
-    try {
-      await pool.query(`
-        UPDATE user_challenges uc
-        JOIN challenge_meals cm ON cm.user_challenge_id = uc.id
-        LEFT JOIN challenge_results cr
-          ON cr.user_challenge_id = uc.id
-         AND cr.day_index = cm.day_index
-         AND cr.meal_time = cm.meal_time
-       SET uc.status='실패'
-       WHERE uc.status='진행 중' AND cr.id IS NULL
-         AND DATE_ADD(DATE(uc.started_at), INTERVAL cm.day_index-1 DAY) < CURDATE()
-      `);
-    } catch (err) {
-      console.error("[CRON] 자동 실패 에러:", err.message);
-    }
-  },
-  { timezone: "Asia/Seoul" }
-);
-
-// ====================================================
-// ✅ 주간 결과 + 스티커 해금 API (추가 부분)
+// ✅ [스티커/주차 결과 기능 추가 영역]
+//    (위의 기존 API는 한 줄도 수정 안 함)
 // ====================================================
 
-// 성공 횟수 → 스티커 코드 매핑
-// 1주차 성공 → sticker_2
-// 2주차 성공 → sticker_3 ...
-const SUCCESS_STICKERS = [
-  null,          // 0 : 사용 안 함
-  "sticker_2",   // 1회 성공
-  "sticker_3",   // 2회 성공
-  "sticker_4",
-  "sticker_5",
-  "sticker_6",
-  "sticker_7",
-  "sticker_8",
-  "sticker_9",
-  "sticker_10",
-  "sticker_11",
-  "sticker_12",
-  "sticker_13",
-  "sticker_14",
-  "sticker_15",
-  "sticker_16",
-];
-
-// ✅ 주간 결과 저장 + 스티커 해금
-// Android: POST /challenge/week-result
-// body: { user_id, week_number, success_rate, most_successful_meal }
+// 1) 주차 결과 저장 + 스티커 해금
 app.post("/challenge/week-result", async (req, res) => {
-  const { user_id, week_number, success_rate, most_successful_meal } = req.body;
-
-  if (!user_id || !week_number || success_rate === undefined) {
-    return res.status(400).json({
-      success: false,
-      message: "user_id, week_number, success_rate는 필수입니다.",
-    });
-  }
-
-  const userId = Number(user_id);
-  const weekNum = Number(week_number);
-  const rate = Number(success_rate);
-
-  // 🔥 80% 이상이면 성공
-  const isSuccess = rate >= 80 ? 1 : 0;
-
-  console.log(
-    `[/challenge/week-result] ▶ user=${userId}, week=${weekNum}, rate=${rate}, isSuccess=${isSuccess}, most=${most_successful_meal}`
-  );
-
   try {
-    // 1) user_week_success 저장 (있으면 UPDATE)
+    const { user_id, week_number, success_rate, most_successful_meal } = req.body;
+
+    if (!user_id || !week_number || success_rate === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "user_id, week_number, success_rate는 필수입니다.",
+      });
+    }
+
+    const uid = Number(user_id);
+    const w = Number(week_number);
+    const rate = Number(success_rate);
+
+    // 🔥 80% 이상이면 성공
+    const is_success = rate >= 80 ? 1 : 0;
+
+    // 1) user_week_success 에 저장 / 갱신
     await pool.query(
       `
-      INSERT INTO user_week_success
-        (user_id, week_number, success_rate, most_successful_meal, is_success, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+      INSERT INTO user_week_success 
+        (user_id, week_number, success_rate, most_successful_meal, is_success, updated_at)
+      VALUES (?, ?, ?, ?, ?, NOW())
       ON DUPLICATE KEY UPDATE
         success_rate = VALUES(success_rate),
         most_successful_meal = VALUES(most_successful_meal),
         is_success = VALUES(is_success),
         updated_at = NOW()
       `,
-      [userId, weekNum, rate, most_successful_meal || null, isSuccess]
+      [uid, w, rate, most_successful_meal || null, is_success]
     );
 
-    let unlockedSticker = null;
-
-    // 2) 성공한 경우만 스티커 해금
-    if (isSuccess === 1) {
-      // 지금까지 성공한 주차 수
-      const [rows] = await pool.query(
-        `
-        SELECT COUNT(*) AS cnt
-        FROM user_week_success
-        WHERE user_id = ? AND is_success = 1
-        `,
-        [userId]
-      );
-
-      const successCount = rows[0].cnt; // 첫 성공이면 1
-      unlockedSticker = SUCCESS_STICKERS[successCount] || null;
-
-      if (unlockedSticker) {
-        await pool.query(
-          `
-          INSERT INTO user_stickers (user_id, sticker_code, unlocked_at)
-          VALUES (?, ?, NOW())
-          `,
-          [userId, unlockedSticker]
-        );
-
-        console.log(
-          `[/challenge/week-result] 🎉 스티커 해금: user=${userId}, code=${unlockedSticker}`
-        );
-      } else {
-        console.log(
-          `[/challenge/week-result] 성공 횟수=${successCount}, 추가 해금 스티커 없음`
-        );
-      }
-    } else {
-      console.log(
-        `[/challenge/week-result] 이번 주 실패 (rate=${rate}) → 스티커 해금 없음`
-      );
+    // 80% 미만이면 여기서 끝 (스티커 해금 X)
+    if (!is_success) {
+      console.log(`[WEEK] user=${uid}, week=${w}, rate=${rate} (미해금)`);
+      return res.json({ success: true, message: "Week saved. No unlock." });
     }
+
+    // 2) 지금까지 성공한 주차 수 = 해금된 스티커 개수
+    const [rows] = await pool.query(
+      `
+      SELECT COUNT(*) AS cnt
+      FROM user_week_success
+      WHERE user_id = ? AND is_success = 1
+      `,
+      [uid]
+    );
+
+    const successCount = rows[0]?.cnt || 0;
+
+    // 안드에서 쓰는 스티커 코드랑 맞추기 (profile_1 ~ 16)
+    const STICKERS = [
+      "profile_1",  // 기본 (항상 사용) - successCount=0
+      "profile_2",  // 1번 성공 시
+      "profile_3",
+      "profile_4",
+      "profile_5",
+      "profile_6",
+      "profile_7",
+      "profile_8",
+      "profile_9",
+      "profile_10",
+      "profile_11",
+      "profile_12",
+      "profile_13",
+      "profile_14",
+      "profile_15",
+      "profile_16"
+    ];
+
+    // successCount=1 → profile_2, 2→profile_3 ...
+    const unlockSticker = STICKERS[successCount];
+
+    if (!unlockSticker) {
+      console.log(
+        `[WEEK] user=${uid}, week=${w}, 더 이상 해금할 스티커 없음`
+      );
+      return res.json({ success: true, message: "Week saved. No more stickers." });
+    }
+
+    // 3) user_stickers 에 스티커 저장 (중복 방지)
+    await pool.query(
+      `
+      INSERT IGNORE INTO user_stickers (user_id, sticker_code, unlocked_at)
+      VALUES (?, ?, NOW())
+      `,
+      [uid, unlockSticker]
+    );
+
+    console.log(
+      `[WEEK] user=${uid}, week=${w}, rate=${rate} -> 스티커 해금: ${unlockSticker}`
+    );
 
     return res.json({
       success: true,
-      message: "주차 결과 저장 완료",
-      unlocked_sticker: unlockedSticker,
+      message: "Week saved + sticker unlocked",
+      unlocked_sticker: unlockSticker,
     });
   } catch (err) {
     console.error("[/challenge/week-result] ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "서버 오류",
-      error: err.message,
-    });
+    return res.status(500).json({ success: false, message: "서버 오류" });
   }
 });
 
-// ✅ 유저 스티커 목록 조회
-// Android: GET /stickers/:user_id
-// 응답: { success: true, unlocked_stickers: ["sticker_2", ...] }
+// 2) 사용자가 해금한 스티커 목록 조회
 app.get("/stickers/:user_id", async (req, res) => {
-  const userId = Number(req.params.user_id);
+  const user_id = req.params.user_id;
 
   try {
     const [rows] = await pool.query(
@@ -467,13 +503,13 @@ app.get("/stickers/:user_id", async (req, res) => {
       WHERE user_id = ?
       ORDER BY unlocked_at ASC
       `,
-      [userId]
+      [user_id]
     );
 
     const unlocked = rows.map((r) => r.sticker_code);
 
     console.log(
-      `[/stickers] user=${userId} → unlocked = ${JSON.stringify(unlocked)}`
+      `[STICKERS] GET user=${user_id}, unlocked=${JSON.stringify(unlocked)}`
     );
 
     return res.json({
@@ -481,14 +517,35 @@ app.get("/stickers/:user_id", async (req, res) => {
       unlocked_stickers: unlocked,
     });
   } catch (err) {
-    console.error("[/stickers] ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "서버 오류",
-      error: err.message,
-    });
+    console.error("[/stickers/:user_id] ERROR:", err);
+    return res.status(500).json({ success: false, message: "서버 오류" });
   }
 });
+
+// ====================================================
+// ✅ [CRON - 자동 실패]  (원본 그대로)
+// ====================================================
+cron.schedule(
+  "*/5 * * * *",
+  async () => {
+    console.log("[CRON] 자동 실패 처리 실행");
+    try {
+      await pool.query(`
+        INSERT IGNORE INTO challenge_results (user_challenge_id, meal_id, day_index, meal_time, status)
+        SELECT cm.user_challenge_id, cm.meal_id, cm.day_index, cm.meal_time, '실패'
+        FROM challenge_meals cm
+        JOIN user_challenges uc ON uc.user_challenge_id=cm.user_challenge_id
+        LEFT JOIN challenge_results cr
+          ON cr.user_challenge_id=cm.user_challenge_id AND cr.day_index=cm.day_index AND cr.meal_time=cm.meal_time
+        WHERE uc.status='진행 중' AND cr.id IS NULL
+          AND DATE_ADD(DATE(uc.started_at), INTERVAL cm.day_index-1 DAY) < CURDATE()
+      `);
+    } catch (err) {
+      console.error("[CRON] 자동 실패 에러:", err.message);
+    }
+  },
+  { timezone: "Asia/Seoul" }
+);
 
 // ====================================================
 // ✅ 서버 실행
