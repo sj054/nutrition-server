@@ -34,107 +34,42 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/images", express.static("public/images"));
 
 // --------------------- 헬스 체크 ---------------------
-app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "Nutrition Challenge API" });
-});
-
-// --------------------- 유틸 함수 ---------------------
-function mapMealRow(row) {
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    image_url: row.image_url,
-    calories: row.calories,
-    protein: row.protein,
-    carbs: row.carbs,
-    fat: row.fat,
-    category_id: row.category_id,
-  };
-}
+app.get("/", (req, res) => res.send("🚀 서버 연결 성공!"));
 
 // ====================================================
-// ✅ 회원가입 / 로그인 / 프로필 관련
-// ====================================================
-
-// ✅ [회원가입]
+// ✅ [회원가입 API]
 app.post("/signup", async (req, res) => {
-  const { username, email, password, nickname, gender, birth, category_id } =
-    req.body;
-
-  if (!username || !email || !password) {
-    return res
-      .status(400)
-      .json({ success: false, message: "필수 항목 누락 (username/email/password)" });
-  }
-
-  try {
-    const hashed = await bcrypt.hash(password, 10);
-
-    const [result] = await pool.query(
-      `
-      INSERT INTO users (username, email, password, nickname, gender, birth, category_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `,
-      [username, email, hashed, nickname || null, gender || null, birth || null, category_id || null]
-    );
-
-    res.json({
-      success: true,
-      message: "회원가입 성공",
-      user_id: result.insertId,
+  const { username, email, password, nickname, gender, category_id } = req.body;
+  if (!username || !email || !password || !nickname || !gender || !category_id) {
+    return res.status(400).json({
+      success: false,
+      message: "모든 필드(아이디, 이메일, 비번, 닉네임, 성별, 카테고리)는 필수입니다.",
     });
-  } catch (err) {
-    console.error("[SIGNUP ERROR]", err.message);
-    res.status(500).json({ success: false, message: "서버 에러" });
   }
-});
-
-// ✅ [아이디 중복 체크]
-app.get("/check-username", async (req, res) => {
-  const { username } = req.query;
-  if (!username)
-    return res
-      .status(400)
-      .json({ success: false, message: "username이 필요합니다." });
 
   try {
-    const [rows] = await pool.query("SELECT id FROM users WHERE username = ?", [
-      username,
-    ]);
-    res.json({ success: true, exists: rows.length > 0 });
+    const hash = await bcrypt.hash(password, 10);
+    await pool.query(
+      "INSERT INTO users (username, email, password, nickname, gender, category_id) VALUES (?, ?, ?, ?, ?, ?)",
+      [username, email, hash, nickname, gender, category_id]
+    );
+    res.json({ success: true, message: "회원가입 완료" });
   } catch (err) {
-    console.error("[CHECK USERNAME ERROR]", err.message);
-    res.status(500).json({ success: false, message: "서버 에러" });
+    if (err.code === "ER_DUP_ENTRY") {
+      const isUsernameDup = err.message.includes("'username'");
+      const message = isUsernameDup ? "이미 사용 중인 아이디입니다." : "이미 사용 중인 이메일입니다.";
+      return res.status(409).json({ success: false, message });
+    }
+    res.status(500).json({ success: false, message: "서버 오류" });
   }
 });
 
-// ✅ [이메일 중복 체크]
-app.get("/check-email", async (req, res) => {
-  const { email } = req.query;
-  if (!email)
-    return res
-      .status(400)
-      .json({ success: false, message: "email이 필요합니다." });
-
-  try {
-    const [rows] = await pool.query("SELECT id FROM users WHERE email = ?", [
-      email,
-    ]);
-    res.json({ success: true, exists: rows.length > 0 });
-  } catch (err) {
-    console.error("[CHECK EMAIL ERROR]", err.message);
-    res.status(500).json({ success: false, message: "서버 에러" });
-  }
-});
-
-// ✅ [로그인]
+// ====================================================
+// ✅ [로그인 API]
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password)
-    return res
-      .status(400)
-      .json({ success: false, message: "아이디/비밀번호를 입력해주세요." });
+    return res.status(400).json({ success: false, message: "아이디와 비밀번호를 입력하세요." });
 
   try {
     const [[user]] = await pool.query(
@@ -143,15 +78,11 @@ app.post("/login", async (req, res) => {
     );
 
     if (!user)
-      return res
-        .status(401)
-        .json({ success: false, message: "존재하지 않는 사용자" });
+      return res.status(401).json({ success: false, message: "존재하지 않는 사용자" });
 
     const ok = await bcrypt.compare(password, user.password);
     if (!ok)
-      return res
-        .status(401)
-        .json({ success: false, message: "비밀번호 불일치" });
+      return res.status(401).json({ success: false, message: "비밀번호 불일치" });
 
     const token = jwt.sign(
       { user_id: user.user_id, email: user.email, username: user.username },
@@ -161,48 +92,40 @@ app.post("/login", async (req, res) => {
 
     res.json({
       success: true,
-      message: "로그인 성공",
       token,
       user_id: user.user_id,
       category_id: user.category_id,
-      username: user.username,
-      email: user.email,
+      message: "로그인 성공",
     });
   } catch (err) {
-    console.error("[LOGIN ERROR]", err.message);
-    res.status(500).json({ success: false, message: "서버 에러" });
+    res.status(500).json({ success: false, message: "서버 오류" });
   }
 });
 
+// ====================================================
 // ✅ [ID/PW 찾기]
 app.get("/find-id", async (req, res) => {
   const { name, email } = req.query;
   if (!name || !email)
-    return res
-      .status(400)
-      .json({ success: false, message: "이름과 이메일을 입력하세요." });
+    return res.status(400).json({ success: false, message: "이름과 이메일을 입력하세요." });
 
   try {
     const [[user]] = await pool.query(
       "SELECT username FROM users WHERE nickname = ? AND email = ?",
       [name, email]
     );
-    if (user) res.json({ success: true, username: user.username });
-    else
-      res
-        .status(404)
-        .json({ success: false, message: "일치하는 사용자가 없습니다." });
+    if (user)
+      res.json({ success: true, username: user.username });
+    else res.status(404).json({ success: false, message: "일치하는 사용자가 없습니다." });
   } catch {
-    res.status(500).json({ success: false, message: "서버 에러" });
+    res.status(500).json({ success: false, message: "서버 오류" });
   }
 });
 
 app.get("/find-password", async (req, res) => {
   const { username, email } = req.query;
   if (!username || !email)
-    return res
-      .status(400)
-      .json({ success: false, message: "아이디와 이메일을 입력하세요." });
+    return res.status(400).json({ success: false, message: "아이디와 이메일을 입력하세요." });
 
   try {
     const [[user]] = await pool.query(
@@ -210,20 +133,18 @@ app.get("/find-password", async (req, res) => {
       [username, email]
     );
     if (!user)
-      return res
-        .status(404)
-        .json({ success: false, message: "일치하는 사용자가 없습니다." });
+      return res.status(404).json({ success: false, message: "일치하는 사용자가 없습니다." });
 
     res.json({
       success: true,
-      message:
-        "비밀번호 재설정 링크를 이메일로 발송했다고 가정합니다. (실제 메일 기능 없음)",
+      message: "비밀번호 재설정 링크를 이메일로 발송했다고 가정합니다. (실제 메일 기능 없음)",
     });
   } catch {
     res.status(500).json({ success: false, message: "서버 에러" });
   }
 });
 
+// ====================================================
 // ✅ [프로필 조회]
 app.get("/profile/:user_id", async (req, res) => {
   const userId = req.params.user_id;
@@ -238,9 +159,7 @@ app.get("/profile/:user_id", async (req, res) => {
     );
 
     if (!user)
-      return res
-        .status(404)
-        .json({ success: false, message: "사용자 정보를 찾을 수 없습니다." });
+      return res.status(404).json({ success: false, message: "사용자 정보를 찾을 수 없습니다." });
 
     res.json({ success: true, user });
   } catch (err) {
@@ -249,6 +168,7 @@ app.get("/profile/:user_id", async (req, res) => {
   }
 });
 
+// ====================================================
 // ✅ [프로필 수정]
 app.patch("/profile/:user_id", async (req, res) => {
   const userId = req.params.user_id;
@@ -272,9 +192,7 @@ app.patch("/profile/:user_id", async (req, res) => {
 });
 
 // ====================================================
-// ✅ 카테고리 / 식단 관련 API
-// ====================================================
-
+// ✅ [카테고리 목록]
 app.get("/categories", async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT id, name, description FROM categories");
@@ -285,25 +203,26 @@ app.get("/categories", async (req, res) => {
   }
 });
 
+// ====================================================
+// ✅ [식단 목록]
 app.get("/meals", async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT * FROM meals");
-    res.json({ success: true, meals: rows.map(mapMealRow) });
+    res.json({ success: true, meals: rows });
   } catch (err) {
     console.error("[MEALS ERROR]", err.message);
     res.status(500).json({ success: false, message: "서버 에러" });
   }
 });
 
+// ✅ [식단 상세]
 app.get("/meals/:id", async (req, res) => {
   const id = req.params.id;
   try {
     const [[row]] = await pool.query("SELECT * FROM meals WHERE id = ?", [id]);
     if (!row)
-      return res
-        .status(404)
-        .json({ success: false, message: "해당 식단을 찾을 수 없습니다." });
-    res.json({ success: true, meal: mapMealRow(row) });
+      return res.status(404).json({ success: false, message: "해당 식단을 찾을 수 없습니다." });
+    res.json({ success: true, meal: row });
   } catch (err) {
     console.error("[MEAL DETAIL ERROR]", err.message);
     res.status(500).json({ success: false, message: "서버 에러" });
@@ -311,16 +230,21 @@ app.get("/meals/:id", async (req, res) => {
 });
 
 // ====================================================
-// ✅ 검색 / 추천 / 기타 유틸 API (여기까지 기존 그대로 유지)
-// ====================================================
-
+// ✅ [유저 기본 정보(마이페이지 상단)]
 app.get("/users/:id", async (req, res) => {
   const id = req.params.id;
   try {
     const [rows] = await pool.query(
-      "SELECT u.id, u.username, u.email, u.nickname, u.gender, u.birth, u.category_id, u.profile_image, c.name AS category_name FROM users u LEFT JOIN categories c ON c.id=u.category_id WHERE u.id=?",
+      `
+      SELECT u.id, u.username, u.email, u.nickname, u.gender, u.birth, 
+             u.category_id, u.profile_image, c.name AS category_name
+      FROM users u
+      LEFT JOIN categories c ON c.id = u.category_id
+      WHERE u.id = ?
+      `,
       [id]
     );
+
     if (rows.length === 0)
       return res.status(404).json({ message: "사용자 없음" });
 
@@ -345,23 +269,58 @@ app.get("/users/:id", async (req, res) => {
   }
 });
 
-// (※ 중간에 네가 원래 가지고 있던 다른 API들 계속 있음)
-// 예: 챌린지 자동 실패 처리 cron, 기타 등등…
+// ====================================================
+// ✅ [유저 프로필 수정(마이페이지)]
+app.patch("/users/:id", async (req, res) => {
+  const userId = req.params.id;
+  const { nickname, gender, birth, category_id, profile_image } = req.body;
+
+  try {
+    const [result] = await pool.query(
+      `
+      UPDATE users
+      SET nickname = ?, gender = ?, birth = ?, category_id = ?, profile_image = ?
+      WHERE id = ?
+      `,
+      [nickname || null, gender || null, birth || null, category_id || null, profile_image || null, userId]
+    );
+
+    if (result.affectedRows === 0)
+      return res.status(404).json({ message: "사용자 없음" });
+
+    const [[user]] = await pool.query(
+      `
+      SELECT u.id, u.username, u.email, u.nickname, u.gender, u.birth, u.category_id,
+             u.profile_image, c.name AS category_name
+      FROM users u
+      LEFT JOIN categories c ON c.id = u.category_id
+      WHERE u.id = ?
+      `,
+      [userId]
+    );
+
+    res.json(user);
+  } catch (err) {
+    console.error("❌ /users/:id PATCH error:", err);
+    res.status(500).json({ message: "서버 오류" });
+  }
+});
+
 
 // ====================================================
-// ✅ CRON 예시 (원래 파일에 있던 부분 유지)
-// ====================================================
-
+// ✅ [CRON - 자동 실패]
 cron.schedule(
-  "0 3 * * *",
+  "*/5 * * * *",
   async () => {
+    console.log("[CRON] 자동 실패 처리 실행");
     try {
       await pool.query(`
         UPDATE user_challenges uc
-        JOIN challenge_meals cm ON cm.challenge_id = uc.challenge_id
+        JOIN challenge_meals cm ON cm.user_challenge_id = uc.id
         LEFT JOIN challenge_results cr
           ON cr.user_challenge_id = uc.id
          AND cr.day_index = cm.day_index
+         AND cr.meal_time = cm.meal_time
        SET uc.status='실패'
        WHERE uc.status='진행 중' AND cr.id IS NULL
          AND DATE_ADD(DATE(uc.started_at), INTERVAL cm.day_index-1 DAY) < CURDATE()
@@ -374,10 +333,12 @@ cron.schedule(
 );
 
 // ====================================================
-// ✅ 주간 결과 + 스티커 해금 API (여기부터 추가된 부분)
+// ✅ 주간 결과 + 스티커 해금 API (추가 부분)
 // ====================================================
 
 // 성공 횟수 → 스티커 코드 매핑
+// 1주차 성공 → sticker_2
+// 2주차 성공 → sticker_3 ...
 const SUCCESS_STICKERS = [
   null,          // 0 : 사용 안 함
   "sticker_2",   // 1회 성공
@@ -398,6 +359,8 @@ const SUCCESS_STICKERS = [
 ];
 
 // ✅ 주간 결과 저장 + 스티커 해금
+// Android: POST /challenge/week-result
+// body: { user_id, week_number, success_rate, most_successful_meal }
 app.post("/challenge/week-result", async (req, res) => {
   const { user_id, week_number, success_rate, most_successful_meal } = req.body;
 
@@ -412,6 +375,7 @@ app.post("/challenge/week-result", async (req, res) => {
   const weekNum = Number(week_number);
   const rate = Number(success_rate);
 
+  // 🔥 80% 이상이면 성공
   const isSuccess = rate >= 80 ? 1 : 0;
 
   console.log(
@@ -419,6 +383,7 @@ app.post("/challenge/week-result", async (req, res) => {
   );
 
   try {
+    // 1) user_week_success 저장 (있으면 UPDATE)
     await pool.query(
       `
       INSERT INTO user_week_success
@@ -435,7 +400,9 @@ app.post("/challenge/week-result", async (req, res) => {
 
     let unlockedSticker = null;
 
+    // 2) 성공한 경우만 스티커 해금
     if (isSuccess === 1) {
+      // 지금까지 성공한 주차 수
       const [rows] = await pool.query(
         `
         SELECT COUNT(*) AS cnt
@@ -451,7 +418,7 @@ app.post("/challenge/week-result", async (req, res) => {
       if (unlockedSticker) {
         await pool.query(
           `
-          INSERT IGNORE INTO user_stickers (user_id, sticker_code, unlocked_at)
+          INSERT INTO user_stickers (user_id, sticker_code, unlocked_at)
           VALUES (?, ?, NOW())
           `,
           [userId, unlockedSticker]
@@ -487,6 +454,8 @@ app.post("/challenge/week-result", async (req, res) => {
 });
 
 // ✅ 유저 스티커 목록 조회
+// Android: GET /stickers/:user_id
+// 응답: { success: true, unlocked_stickers: ["sticker_2", ...] }
 app.get("/stickers/:user_id", async (req, res) => {
   const userId = Number(req.params.user_id);
 
